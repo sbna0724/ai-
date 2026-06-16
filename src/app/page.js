@@ -1,10 +1,10 @@
 'use client'; 
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 export default function Home() {
-    // 💡 .env.local에 설정한 제미나이 API 키를 가져옵니다.
-    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+
 
     // 화면 및 상태 관리
     const [screen, setScreen] = useState(1);
@@ -21,6 +21,49 @@ export default function Home() {
     const [categories, setCategories] = useState([]);
     const [categoryName, setCategoryName] = useState("");
     const [categoryAmount, setCategoryAmount] = useState("");
+    // 🔄 페이지 로드 시 저장된 데이터 불러오기
+    useEffect(() => {
+        const loadData = async () => {
+          const { data, error } = await supabase
+            .from('user_state')
+            .select('*')
+            .limit(1)
+            .single();
+  
+          if (data) {
+            setBalance(data.budget);
+            if (data.inventory) {
+              setIncome(data.inventory.income ?? 2000000);
+              setCategories(data.inventory.categories ?? []);
+              setExpenses(data.inventory.expenses ?? []);
+            }
+          }
+        };
+        loadData();
+      }, []);
+  
+      // 💾 income, balance, categories 바뀔 때마다 저장
+      useEffect(() => {
+        const saveData = async () => {
+          const { data: existing } = await supabase
+            .from('user_state')
+            .select('id')
+            .limit(1)
+            .single();
+  
+          const payload = {
+            budget: balance,
+            inventory: { income, categories, expenses },
+          };
+  
+          if (existing) {
+            await supabase.from('user_state').update(payload).eq('id', existing.id);
+          } else {
+            await supabase.from('user_state').insert(payload);
+          }
+        };
+        saveData();
+    }, [income, balance, categories, expenses]);
     const [selectedCategory, setSelectedCategory] = useState(""); // 화면 2에서 선택할 예산 분야
 
     // 입력 데이터 상태
@@ -202,10 +245,7 @@ export default function Home() {
     // AI 분석 시작
     const startAnalysis = async () => {
         if (isAnalyzeDisabled) return;
-        if (!apiKey) {
-            setErrorMsg("코드 상단에 제미나이 API 키를 먼저 입력해주세요!");
-            return;
-        }
+
 
         setErrorMsg("");
 
@@ -221,7 +261,7 @@ export default function Home() {
         setIsLoading(true);
         setScreen(3);
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const url = `/api/analyze-item`;
         const pureItemPrice = Number(itemPrice.replace(/,/g, ""));
 
         // 💡 [수정됨] 분야 선택 여부에 따른 프롬프트 문구 추가
@@ -285,7 +325,7 @@ export default function Home() {
                 body: JSON.stringify(payload)
             });
 
-            const jsonText = data.candidates[0].content.parts[0].text;
+            const jsonText = data.result;
             const parsedResult = JSON.parse(jsonText);
             
             setResult(parsedResult);
